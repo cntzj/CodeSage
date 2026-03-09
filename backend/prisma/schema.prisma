@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PRStatus {
+  open
+  closed
+  merged
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
+enum Severity {
+  info
+  warning
+  error
+}
+
+enum IssueCategory {
+  security
+  performance
+  maintainability
+  style
+}
+
+enum KnowledgeNodeType {
+  function
+  class
+  module
+  api
+  concept
+}
+
+enum DebtType {
+  TODO
+  FIXME
+  HACK
+  XXX
+  BUG
+}
+
+enum DebtPriority {
+  low
+  medium
+  high
+}
+
+enum DebtStatus {
+  open
+  in_progress
+  resolved
+}
+
+enum UserRole {
+  admin
+  member
+  viewer
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  name         String?
+  passwordHash String
+  role         UserRole   @default(member)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  queryLogs    QueryLog[]
+
+  @@map("users")
+}
+
+model Project {
+  id            String          @id @default(uuid())
+  githubRepoId  BigInt          @unique
+  name          String
+  fullName      String
+  owner         String
+  defaultBranch String          @default("main")
+  webhookSecret String?
+  config        Json            @default("{}")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  pullRequests  PullRequest[]
+  knowledge     KnowledgeNode[]
+  debts         TechDebt[]
+  queryLogs     QueryLog[]
+
+  @@index([owner])
+  @@index([fullName])
+  @@map("projects")
+}
+
+model PullRequest {
+  id             String          @id @default(uuid())
+  projectId      String
+  githubPrNumber Int
+  title          String?
+  description    String?
+  author         String?
+  branchFrom     String?
+  branchTo       String?
+  status         PRStatus        @default(open)
+  riskLevel      RiskLevel?
+  summary        String?
+  rawDiff        String?
+  installationId Int?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  comments       ReviewComment[]
+
+  @@unique([projectId, githubPrNumber])
+  @@index([projectId, status])
+  @@index([createdAt])
+  @@map("pull_requests")
+}
+
+model ReviewComment {
+  id              String       @id @default(uuid())
+  prId            String
+  filePath        String?
+  lineNumber      Int?
+  severity        Severity
+  category        IssueCategory
+  message         String
+  suggestion      String?
+  codeExample     String?
+  aiConfidence    Float?
+  githubCommentId BigInt?
+  createdAt       DateTime     @default(now())
+  pullRequest     PullRequest  @relation(fields: [prId], references: [id], onDelete: Cascade)
+
+  @@index([prId])
+  @@index([severity])
+  @@map("review_comments")
+}
+
+model KnowledgeNode {
+  id            String              @id @default(uuid())
+  projectId     String
+  nodeType      KnowledgeNodeType
+  name          String
+  filePath      String
+  lineStart     Int?
+  lineEnd       Int?
+  description   String?
+  codeSnippet   String?
+  embeddingId   String?
+  metadata      Json                @default("{}")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceEdges   KnowledgeRelation[] @relation("SourceNode")
+  targetEdges   KnowledgeRelation[] @relation("TargetNode")
+
+  @@index([projectId, nodeType])
+  @@index([filePath])
+  @@map("knowledge_nodes")
+}
+
+model KnowledgeRelation {
+  id           String        @id @default(uuid())
+  sourceNodeId String
+  targetNodeId String
+  relationType String
+  metadata     Json          @default("{}")
+  createdAt    DateTime      @default(now())
+  sourceNode   KnowledgeNode @relation("SourceNode", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode   KnowledgeNode @relation("TargetNode", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@index([sourceNodeId])
+  @@index([targetNodeId])
+  @@map("knowledge_relations")
+}
+
+model TechDebt {
+  id           String       @id @default(uuid())
+  projectId    String
+  debtType     DebtType
+  description  String
+  filePath     String
+  lineNumber   Int
+  author       String?
+  priority     DebtPriority @default(medium)
+  riskScore    Int          @default(0)
+  suggestedFix String?
+  status       DebtStatus   @default(open)
+  createdAt    DateTime     @default(now())
+  resolvedAt   DateTime?
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+  @@index([riskScore])
+  @@map("tech_debts")
+}
+
+model QueryLog {
+  id            String    @id @default(uuid())
+  projectId     String
+  userId        String?
+  query         String
+  response      String?
+  relevantNodes String[]
+  feedback      Int?
+  createdAt     DateTime  @default(now())
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@map("query_logs")
+}
